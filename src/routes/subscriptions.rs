@@ -1,6 +1,8 @@
 //! src/routes/subscriptions.rs
 use actix_web::{web, HttpResponse};
-use sqlx::PgConnection;
+use sqlx::PgPool;
+use chrono::Utc;
+use uuid::Uuid;
 
 #[derive(serde::Deserialize)]
 pub struct FormData {
@@ -9,9 +11,29 @@ pub struct FormData {
 }
 
 pub async fn subscribe(
-  _form: web::Form<FormData>,
-  // Retrieving a connection from the application state!
-  _connection: web::Data<PgConnection>,
+  form: web::Form<FormData>,
+  pool: web::Data<PgPool>,
 ) -> HttpResponse {
-  HttpResponse::Ok().finish()
+  match sqlx::query!(
+    r#"
+    INSERT INTO subscriptions (id, email, name, subscribed_at)
+    VALUES ($1, $2, $3, $4)
+    "#,
+    Uuid::new_v4(),
+    form.email,
+    form.name,
+    Utc::now()
+  )
+  // We use `get_ref` to get an immutable reference to the `PgConnection`
+  // wrapped by `web::Data`
+  // Using the pool as a drop-in replacement
+  .execute(pool.get_ref())
+  .await
+  {
+    Ok(_) => HttpResponse::Ok().finish(),
+    Err(e) => {
+      println!("Failed to execute query: {}", e);
+      HttpResponse::InternalServerError().finish()
+    }
+  }
 }
